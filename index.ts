@@ -2,7 +2,7 @@
 
 import chalk from "chalk";
 import DomainInfo = require("./DomainInfo");
-import { ServerlessInstance, ServerlessOptions } from "./types";
+import {ServerlessInstance, ServerlessOptions} from "./types";
 
 const endpointTypes = {
     edge: "EDGE",
@@ -93,7 +93,7 @@ class ServerlessCustomDomain {
         if (!domainInfo) {
             const certArn = await this.getCertArn();
             domainInfo = await this.createCustomDomain(certArn);
-            await this.changeResourceRecordSet("UPSERT", domainInfo);
+            // await this.changeResourceRecordSet("UPSERT", domainInfo);
             this.serverless.cli.log(
                 `Custom domain ${this.givenDomainName} was created.
             New domains may take up to 40 minutes to be initialized.`,
@@ -130,7 +130,10 @@ class ServerlessCustomDomain {
     public async setupBasePathMapping(): Promise<void> {
         // check if basepathmapping exists
         const restApiId = await this.getRestApiId();
-        const currentBasePath = await this.getBasePathMapping(restApiId);
+        console.log('>>>>>>>>>>.', restApiId);
+        // const currentBasePath = await this.getBasePathMapping(restApiId);
+        const currentBasePath = undefined;
+        this.serverless.cli.log(`>>>>>>>>>>>>>>>>${JSON.stringify(currentBasePath)}`);
         // if basepath that matches restApiId exists, update; else, create
         if (!currentBasePath) {
             await this.createBasePathMapping(restApiId);
@@ -198,7 +201,7 @@ class ServerlessCustomDomain {
 
             this.acmRegion = this.endpointType === endpointTypes.regional ?
                 this.serverless.providers.aws.getRegion() : "us-east-1";
-            const acmCredentials = Object.assign({}, credentials, { region: this.acmRegion });
+            const acmCredentials = Object.assign({}, credentials, {region: this.acmRegion});
             this.acm = new this.serverless.providers.aws.sdk.ACM(acmCredentials);
         }
     }
@@ -247,7 +250,7 @@ class ServerlessCustomDomain {
         let certData;
         try {
             certData = await this.acm.listCertificates(
-                { CertificateStatuses: certStatuses }).promise();
+                {CertificateStatuses: certStatuses}).promise();
             // The more specific name will be the longest
             let nameLength = 0;
             const certificates = certData.CertificateSummaryList;
@@ -292,7 +295,7 @@ class ServerlessCustomDomain {
     public async getDomainInfo(): Promise<DomainInfo> {
         let domainInfo;
         try {
-            domainInfo = await this.apigateway.getDomainName({ domainName: this.givenDomainName }).promise();
+            domainInfo = await this.apigateway.getDomainName({domainName: this.givenDomainName}).promise();
             return new DomainInfo(domainInfo);
         } catch (err) {
             this.logIfDebug(err);
@@ -328,6 +331,7 @@ class ServerlessCustomDomain {
         try {
             createdDomain = await this.apigateway.createDomainName(params).promise();
         } catch (err) {
+            console.log('>>>>>>>>.', err, params);
             this.logIfDebug(err);
             throw new Error(`Error: Failed to create custom domain ${this.givenDomainName}\n`);
         }
@@ -370,16 +374,16 @@ class ServerlessCustomDomain {
         // Set up parameters
         const route53HostedZoneId = await this.getRoute53HostedZoneId();
         const Changes = ["A", "AAAA"].map((Type) => ({
-                Action: action,
-                ResourceRecordSet: {
-                    AliasTarget: {
-                        DNSName: domain.domainName,
-                        EvaluateTargetHealth: false,
-                        HostedZoneId: domain.hostedZoneId,
-                    },
-                    Name: this.givenDomainName,
-                    Type,
+            Action: action,
+            ResourceRecordSet: {
+                AliasTarget: {
+                    DNSName: domain.domainName,
+                    EvaluateTargetHealth: false,
+                    HostedZoneId: domain.hostedZoneId,
                 },
+                Name: this.givenDomainName,
+                Type,
+            },
         }));
         const params = {
             ChangeBatch: {
@@ -497,6 +501,7 @@ class ServerlessCustomDomain {
             await this.apigateway.createBasePathMapping(params).promise();
             this.serverless.cli.log("Created basepath mapping.");
         } catch (err) {
+            console.log(err, params);
             this.logIfDebug(err);
             throw new Error(`Error: Unable to create basepath mapping.\n`);
         }
