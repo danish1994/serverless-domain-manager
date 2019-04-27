@@ -2,7 +2,7 @@
 
 import chalk from "chalk";
 import DomainInfo = require("./DomainInfo");
-import {ServerlessInstance, ServerlessOptions} from "./types";
+import {RootAccount, ServerlessInstance, ServerlessOptions} from "./types";
 
 const endpointTypes = {
     edge: "EDGE",
@@ -33,6 +33,8 @@ class ServerlessCustomDomain {
     public basePath: string;
     private endpointType: string;
     private stage: string;
+    private hasRootAccount: boolean;
+    private rootAccount: RootAccount;
 
     constructor(serverless: ServerlessInstance, options: ServerlessOptions) {
         this.serverless = serverless;
@@ -53,6 +55,27 @@ class ServerlessCustomDomain {
                 ],
                 usage: "Deletes a domain using the domain name defined in the serverless file",
             },
+            request_certificate: {
+                lifecycleEvents: [
+                    "create",
+                    "initialize",
+                ],
+                usage: "Request Certificate for the given domain",
+            },
+            setup_base_path: {
+                lifecycleEvents: [
+                    "create",
+                    "initialize",
+                ],
+                usage: "Setup Base Path for the given domain",
+            },
+            verify_certificate: {
+                lifecycleEvents: [
+                    "create",
+                    "initialize",
+                ],
+                usage: "Verify Certificate for the given domain",
+            },
         };
         this.hooks = {
             "after:deploy:deploy": this.hookWrapper.bind(this, this.setupBasePathMapping),
@@ -60,6 +83,10 @@ class ServerlessCustomDomain {
             "before:remove:remove": this.hookWrapper.bind(this, this.removeBasePathMapping),
             "create_domain:create": this.hookWrapper.bind(this, this.createDomain),
             "delete_domain:delete": this.hookWrapper.bind(this, this.deleteDomain),
+            "request_certificate:create": this.hookWrapper.bind(this, this.requestCert),
+            "setup_base_path:create": this.hookWrapper.bind(this, this.setupBasePathMapping),
+            "verify_certificate:create": this.hookWrapper.bind(this, this.verfiyCert),
+            // "delete_domain:delete": this.hookWrapper.bind(this, this.deleteDomain),
         };
     }
 
@@ -92,9 +119,9 @@ class ServerlessCustomDomain {
         }
         if (!domainInfo) {
             const certArn = await this.getCertArn();
-            console.log(certArn)
+            console.log(certArn);
             domainInfo = await this.createCustomDomain(certArn);
-            // await this.changeResourceRecordSet("UPSERT", domainInfo);
+            await this.changeResourceRecordSet("UPSERT", domainInfo);
             this.serverless.cli.log(
                 `Custom domain ${this.givenDomainName} was created.
             New domains may take up to 40 minutes to be initialized.`,
@@ -131,9 +158,7 @@ class ServerlessCustomDomain {
     public async setupBasePathMapping(): Promise<void> {
         // check if basepathmapping exists
         const restApiId = await this.getRestApiId();
-        console.log('>>>>>>>>>>.', restApiId);
-        // const currentBasePath = await this.getBasePathMapping(restApiId);
-        const currentBasePath = undefined;
+        const currentBasePath = await this.getBasePathMapping(restApiId);
         this.serverless.cli.log(`>>>>>>>>>>>>>>>>${JSON.stringify(currentBasePath)}`);
         // if basepath that matches restApiId exists, update; else, create
         if (!currentBasePath) {
@@ -173,10 +198,32 @@ class ServerlessCustomDomain {
     public initializeVariables(): void {
         this.enabled = this.evaluateEnabled();
         if (this.enabled) {
+            this.hasRootAccount = this.serverless.service.custom.customDomain.hasRootAccount;
+            if (this.hasRootAccount) {
+                this.rootAccount = this.serverless.service.custom.customDomain.rootAccount;
+
+                if (!this.rootAccount.accessKeyId || !this.rootAccount.secretAccessKey) {
+                    throw new Error("Inavalid root account details");
+                }
+            }
+
             const credentials = this.serverless.providers.aws.getCredentials();
 
             this.apigateway = new this.serverless.providers.aws.sdk.APIGateway(credentials);
-            this.route53 = new this.serverless.providers.aws.sdk.Route53(credentials);
+
+            if (this.hasRootAccount) {
+                this.route53 = new this.serverless.providers.aws.sdk.Route53({
+                    ...credentials,
+                    ...this.rootAccount,
+                });
+                console.log({
+                    ...credentials,
+                    ...this.rootAccount,
+                });
+            } else {
+                this.route53 = new this.serverless.providers.aws.sdk.Route53(credentials);
+
+            }
             this.cloudformation = new this.serverless.providers.aws.sdk.CloudFormation(credentials);
 
             this.givenDomainName = this.serverless.service.custom.customDomain.domainName;
@@ -291,6 +338,67 @@ class ServerlessCustomDomain {
     }
 
     /**
+     * Request Certificate for closely matches domain name
+     */
+    public async requestCert(): Promise<void> {
+        const params = {
+            DomainName: this.givenDomainName,
+            DomainValidationOptions: [
+                {
+                    DomainName: this.givenDomainName,
+                    ValidationDomain: this.givenDomainName,
+                },
+            ],
+            ValidationMethod: "DNS",
+        };
+        try {
+            const response = await this.acm.requestCertificate(params).promise();
+            this.serverless.cli.log(`Certificate Created for ${this.givenDomainName}`);
+            this.serverless.cli.log(`CertificateARN: ${response.CertificateArn}`);
+            this.serverless.cli.log(`Please Execute verify_certificate`);
+        } catch (err) {
+            console.log(err);
+            this.logIfDebug(err);
+        }
+    }
+
+    /**
+     * Request Certificate for closely matches domain name
+     */
+    public async verfiyCert(): Promise<void> {
+        const domain = new DomainInfo({});
+        const params = {
+            ChangeBatch: {
+                Changes: [
+                    {
+                        Action: "CREATE",
+                        ResourceRecordSet: {
+                            Name: "_2d8c78e639424f88a5774af81318e7a3.testapi.marketmole.biz",
+                            ResourceRecords: [
+                                {
+                                    Value: "_325b4f8d408b37df2eb51d04fc8dd585.ltfvzjuylp.acm-validations.aws",
+                                },
+                            ],
+                            TTL: 60,
+                            Type: "CNAME",
+                        },
+                    },
+                ],
+                Comment: `Web server for ${this.givenDomainName}`,
+            },
+            HostedZoneId: domain.hostedZoneId,
+        };
+
+        try {
+            const response = await this.route53.changeResourceRecordSets(params).promise();
+            console.log(response);
+        } catch (err) {
+            console.log(err);
+            this.logIfDebug(err);
+        }
+    }
+
+    /**
      * Gets domain info as DomainInfo object if domain exists, otherwise returns false
      */
     public async getDomainInfo(): Promise<DomainInfo> {
@@ -332,7 +440,7 @@ class ServerlessCustomDomain {
         try {
             createdDomain = await this.apigateway.createDomainName(params).promise();
         } catch (err) {
-            console.log('>>>>>>>>.', err, params);
+            console.log(">>>>>>>>.", err, params);
             this.logIfDebug(err);
             throw new Error(`Error: Failed to create custom domain ${this.givenDomainName}\n`);
         }
@@ -474,7 +582,11 @@ class ServerlessCustomDomain {
             basepathInfo = await this.apigateway.getBasePathMappings(params).promise();
         } catch (err) {
             this.logIfDebug(err);
-            throw new Error(`Error: Unable to get BasePathMappings for ${this.givenDomainName}`);
+            if (!this.hasRootAccount) {
+                throw new Error(`Error: Unable to get BasePathMappings for ${this.givenDomainName}`);
+            } else {
+                return;
+            }
         }
         if (basepathInfo.items !== undefined && basepathInfo.items instanceof Array) {
             for (const basepathObj of basepathInfo.items) {
@@ -497,6 +609,9 @@ class ServerlessCustomDomain {
             restApiId,
             stage: this.stage,
         };
+
+        console.log(">>>>>>.", params);
+
         // Make API call
         try {
             await this.apigateway.createBasePathMapping(params).promise();

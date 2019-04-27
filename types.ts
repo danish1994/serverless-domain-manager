@@ -25,8 +25,8 @@ export interface ServerlessInstance { // tslint:disable-line
                 enabled: boolean | string | undefined,
                 hasRootAccount: boolean | undefined
                 rootAccount: {
-                    accessKey: string | undefined,
-                    secret: string | undefined,
+                    accessKeyId: string | undefined,
+                    secretAccessKey: string | undefined,
                 },
             },
         },
@@ -51,4 +51,9 @@ export interface ServerlessInstance { // tslint:disable-line
 
 export interface ServerlessOptions { // tslint:disable-line
     stage: string;
+}
+
+export interface RootAccount { // tslint:disable-line
+    accessKeyId: string;
+    secretAccessKey: string;
 }
