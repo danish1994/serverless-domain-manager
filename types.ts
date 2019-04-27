@@ -23,7 +23,11 @@ export interface ServerlessInstance { // tslint:disable-line
                 hostedZoneId: string | undefined,
                 hostedZonePrivate: boolean | undefined,
                 enabled: boolean | string | undefined,
-                certArn: string | undefined
+                hasRootAccount: boolean | undefined
+                rootAccount: {
+                    accessKey: string | undefined,
+                    secret: string | undefined,
+                },
             },
         },
     };

@@ -33,7 +33,6 @@ class ServerlessCustomDomain {
     public basePath: string;
     private endpointType: string;
     private stage: string;
-    private certArn: string;
 
     constructor(serverless: ServerlessInstance, options: ServerlessOptions) {
         this.serverless = serverless;
@@ -92,8 +91,8 @@ class ServerlessCustomDomain {
             }
         }
         if (!domainInfo) {
-            const certArn = this.certArn || await this.getCertArn();
-            console.log(certArn);
+            const certArn = await this.getCertArn();
+            console.log(certArn)
             domainInfo = await this.createCustomDomain(certArn);
             // await this.changeResourceRecordSet("UPSERT", domainInfo);
             this.serverless.cli.log(
@@ -182,9 +181,6 @@ class ServerlessCustomDomain {
 
             this.givenDomainName = this.serverless.service.custom.customDomain.domainName;
             this.hostedZonePrivate = this.serverless.service.custom.customDomain.hostedZonePrivate;
-
-            this.certArn = this.serverless.service.custom.customDomain.certArn;
-
             let basePath = this.serverless.service.custom.customDomain.basePath;
             if (basePath == null || basePath.trim() === "") {
                 basePath = "(none)";
